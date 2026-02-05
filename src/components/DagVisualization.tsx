@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { GitBranch, RefreshCw, ZoomIn, ZoomOut, Maximize2, Info } from 'lucide-react';
+import { GitBranch, RefreshCw, ZoomIn, ZoomOut, Maximize2, Info, Move, MousePointer } from 'lucide-react';
 import { fetchChainDag, DagNode, DagEdge, DagResponse } from '../api/chainApi';
 
 interface NodePosition {
@@ -18,6 +18,12 @@ export default function DagVisualization() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [nodePositions, setNodePositions] = useState<Map<string, NodePosition>>(new Map());
     const [autoRefresh, setAutoRefresh] = useState(false);
+    
+    // Pan state
+    const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+    const [isPanning, setIsPanning] = useState(false);
+    const [lastMousePos, setLastMousePos] = useState({ x: 0, y: 0 });
+    const [canvasBounds, setCanvasBounds] = useState({ minX: 0, maxX: 0, minY: 0, maxY: 0 });
 
     const loadDagData = useCallback(async () => {
         try {
@@ -58,12 +64,12 @@ export default function DagVisualization() {
         });
 
         // Calculate positions
-        const nodeWidth = 180;
-        const nodeHeight = 80;
         const horizontalSpacing = 220;
         const verticalSpacing = 120;
 
-        const heights = Array.from(nodesByHeight.keys()).sort((a, b) => a - b);
+        const heights = Array.from(nodesByHeight.keys()).sort((a, b) => b - a); // Descending - newest at top
+        
+        let minX = Infinity, maxX = -Infinity, minY = 0, maxY = 0;
         
         heights.forEach((height, heightIndex) => {
             const nodesAtHeight = nodesByHeight.get(height) || [];
@@ -71,15 +77,22 @@ export default function DagVisualization() {
             const startX = -totalWidth / 2 + horizontalSpacing / 2;
 
             nodesAtHeight.forEach((node, nodeIndex) => {
-                positions.set(node.hash, {
-                    x: startX + nodeIndex * horizontalSpacing,
-                    y: heightIndex * verticalSpacing,
-                    node
-                });
+                const x = startX + nodeIndex * horizontalSpacing;
+                const y = heightIndex * verticalSpacing;
+                
+                positions.set(node.hash, { x, y, node });
+                
+                minX = Math.min(minX, x - 100);
+                maxX = Math.max(maxX, x + 100);
+                maxY = Math.max(maxY, y + 80);
             });
         });
 
         setNodePositions(positions);
+        setCanvasBounds({ minX, maxX, minY, maxY });
+        
+        // Reset pan to show the tip (top of chain)
+        setPanOffset({ x: 0, y: 0 });
     }, [dagData]);
 
     // Draw DAG on canvas
@@ -101,9 +114,9 @@ export default function DagVisualization() {
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Apply zoom and center
+        // Apply zoom and pan
         ctx.save();
-        ctx.translate(canvas.width / 2, 60);
+        ctx.translate(canvas.width / 2 + panOffset.x, 80 + panOffset.y);
         ctx.scale(zoom, zoom);
 
         // Draw edges first (so they appear behind nodes)
@@ -113,7 +126,7 @@ export default function DagVisualization() {
             if (!fromPos || !toPos) return;
 
             ctx.beginPath();
-            ctx.moveTo(fromPos.x, fromPos.y + 40);
+            ctx.moveTo(fromPos.x, fromPos.y + 70);
             
             if (edge.edge_type === 'uncle') {
                 // Dashed line for uncle relationships
@@ -125,13 +138,13 @@ export default function DagVisualization() {
                 const midX = (fromPos.x + toPos.x) / 2;
                 const midY = (fromPos.y + toPos.y) / 2;
                 const offset = 50;
-                ctx.quadraticCurveTo(midX + offset, midY, toPos.x, toPos.y + 40);
+                ctx.quadraticCurveTo(midX + offset, midY, toPos.x, toPos.y);
             } else {
                 // Solid line for parent relationships
                 ctx.setLineDash([]);
                 ctx.strokeStyle = '#64748b'; // Gray for parent
                 ctx.lineWidth = 2;
-                ctx.lineTo(toPos.x, toPos.y + 40);
+                ctx.lineTo(toPos.x, toPos.y);
             }
             
             ctx.stroke();
@@ -208,7 +221,7 @@ export default function DagVisualization() {
 
         ctx.restore();
 
-        // Draw legend
+        // Draw legend (fixed position)
         ctx.font = '12px sans-serif';
         const legendY = canvas.height - 30;
         const legendItems = [
@@ -227,16 +240,65 @@ export default function DagVisualization() {
             legendX += 100;
         });
 
-    }, [dagData, nodePositions, zoom, selectedNode]);
+        // Draw scroll hint
+        ctx.fillStyle = '#64748b';
+        ctx.font = '11px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText('Drag to pan • Scroll to zoom', canvas.width - 20, canvas.height - 12);
+
+    }, [dagData, nodePositions, zoom, selectedNode, panOffset]);
+
+    // Handle mouse down - start panning
+    const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        setIsPanning(true);
+        setLastMousePos({ x: e.clientX, y: e.clientY });
+    };
+
+    // Handle mouse move - pan if dragging
+    const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        if (!isPanning) return;
+        
+        const deltaX = e.clientX - lastMousePos.x;
+        const deltaY = e.clientY - lastMousePos.y;
+        
+        setPanOffset(prev => ({
+            x: prev.x + deltaX,
+            y: prev.y + deltaY
+        }));
+        
+        setLastMousePos({ x: e.clientX, y: e.clientY });
+    };
+
+    // Handle mouse up - stop panning
+    const handleMouseUp = () => {
+        setIsPanning(false);
+    };
+
+    // Handle mouse leave - stop panning
+    const handleMouseLeave = () => {
+        setIsPanning(false);
+    };
+
+    // Handle wheel - zoom
+    const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        setZoom(z => Math.max(0.2, Math.min(3, z + delta)));
+    };
 
     // Handle canvas click to select nodes
     const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        // Don't select if we were panning
+        if (Math.abs(e.clientX - lastMousePos.x) > 5 || Math.abs(e.clientY - lastMousePos.y) > 5) {
+            return;
+        }
+
         const canvas = canvasRef.current;
         if (!canvas) return;
 
         const rect = canvas.getBoundingClientRect();
-        const x = (e.clientX - rect.left - canvas.width / 2) / zoom;
-        const y = (e.clientY - rect.top - 60) / zoom;
+        const x = (e.clientX - rect.left - canvas.width / 2 - panOffset.x) / zoom;
+        const y = (e.clientY - rect.top - 80 - panOffset.y) / zoom;
 
         // Find clicked node
         for (const [hash, pos] of nodePositions) {
@@ -246,6 +308,24 @@ export default function DagVisualization() {
             }
         }
         setSelectedNode(null);
+    };
+
+    // Reset view
+    const resetView = () => {
+        setZoom(1);
+        setPanOffset({ x: 0, y: 0 });
+    };
+
+    // Jump to tip
+    const jumpToTip = () => {
+        setPanOffset({ x: 0, y: 0 });
+    };
+
+    // Jump to bottom (oldest blocks)
+    const jumpToBottom = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        setPanOffset({ x: 0, y: -(canvasBounds.maxY - canvas.height + 150) * zoom });
     };
 
     const formatTimestamp = (ts: number) => {
@@ -287,6 +367,7 @@ export default function DagVisualization() {
                         <option value={20}>Last 20 blocks</option>
                         <option value={50}>Last 50 blocks</option>
                         <option value={100}>Last 100 blocks</option>
+                        <option value={200}>Last 200 blocks</option>
                     </select>
                     <button
                         onClick={() => setAutoRefresh(!autoRefresh)}
@@ -329,36 +410,77 @@ export default function DagVisualization() {
                 </div>
             )}
 
-            {/* Zoom Controls */}
-            <div className="flex items-center gap-2">
-                <button
-                    onClick={() => setZoom(z => Math.max(0.3, z - 0.1))}
-                    className="p-2 bg-slate-700 rounded-lg hover:bg-slate-600"
-                >
-                    <ZoomOut className="w-5 h-5 text-slate-300" />
-                </button>
-                <span className="text-slate-400 w-16 text-center">{Math.round(zoom * 100)}%</span>
-                <button
-                    onClick={() => setZoom(z => Math.min(2, z + 0.1))}
-                    className="p-2 bg-slate-700 rounded-lg hover:bg-slate-600"
-                >
-                    <ZoomIn className="w-5 h-5 text-slate-300" />
-                </button>
-                <button
-                    onClick={() => setZoom(1)}
-                    className="p-2 bg-slate-700 rounded-lg hover:bg-slate-600"
-                >
-                    <Maximize2 className="w-5 h-5 text-slate-300" />
-                </button>
+            {/* Controls Bar */}
+            <div className="flex items-center justify-between bg-slate-800/50 rounded-xl p-3 border border-slate-700">
+                <div className="flex items-center gap-2">
+                    <span className="text-slate-400 text-sm mr-2">Zoom:</span>
+                    <button
+                        onClick={() => setZoom(z => Math.max(0.2, z - 0.1))}
+                        className="p-2 bg-slate-700 rounded-lg hover:bg-slate-600"
+                    >
+                        <ZoomOut className="w-4 h-4 text-slate-300" />
+                    </button>
+                    <span className="text-slate-300 w-14 text-center text-sm">{Math.round(zoom * 100)}%</span>
+                    <button
+                        onClick={() => setZoom(z => Math.min(3, z + 0.1))}
+                        className="p-2 bg-slate-700 rounded-lg hover:bg-slate-600"
+                    >
+                        <ZoomIn className="w-4 h-4 text-slate-300" />
+                    </button>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                    <span className="text-slate-400 text-sm mr-2">Navigate:</span>
+                    <button
+                        onClick={jumpToTip}
+                        className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"
+                    >
+                        ↑ Jump to Tip
+                    </button>
+                    <button
+                        onClick={jumpToBottom}
+                        className="px-3 py-2 bg-slate-700 text-slate-300 rounded-lg text-sm hover:bg-slate-600"
+                    >
+                        ↓ Jump to Oldest
+                    </button>
+                    <button
+                        onClick={resetView}
+                        className="px-3 py-2 bg-slate-700 text-slate-300 rounded-lg text-sm hover:bg-slate-600 flex items-center gap-1"
+                    >
+                        <Maximize2 className="w-4 h-4" />
+                        Reset View
+                    </button>
+                </div>
+
+                <div className="flex items-center gap-2 text-slate-500 text-sm">
+                    <Move className="w-4 h-4" />
+                    <span>Drag to pan</span>
+                    <span className="mx-2">•</span>
+                    <MousePointer className="w-4 h-4" />
+                    <span>Click to select</span>
+                </div>
             </div>
 
             {/* Canvas Container */}
-            <div className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden" style={{ height: '500px' }}>
+            <div 
+                className="bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden relative" 
+                style={{ height: '600px' }}
+            >
                 <canvas
                     ref={canvasRef}
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseLeave}
                     onClick={handleCanvasClick}
-                    className="w-full h-full cursor-pointer"
+                    onWheel={handleWheel}
+                    className={`w-full h-full ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
                 />
+                
+                {/* Pan position indicator */}
+                <div className="absolute bottom-4 left-4 bg-slate-900/80 px-3 py-1 rounded text-xs text-slate-400">
+                    Pan: ({Math.round(panOffset.x)}, {Math.round(panOffset.y)}) | Zoom: {Math.round(zoom * 100)}%
+                </div>
             </div>
 
             {/* Selected Node Details */}
@@ -367,6 +489,12 @@ export default function DagVisualization() {
                     <div className="flex items-center gap-3 mb-4">
                         <Info className="w-5 h-5 text-orange-400" />
                         <h3 className="text-lg font-semibold text-white">Block Details</h3>
+                        <button 
+                            onClick={() => setSelectedNode(null)}
+                            className="ml-auto text-slate-400 hover:text-white"
+                        >
+                            ✕
+                        </button>
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
