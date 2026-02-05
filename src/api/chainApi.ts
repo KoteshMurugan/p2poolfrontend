@@ -50,37 +50,37 @@ export interface DagQueryParams {
     limit?: number;
 }
 
-export const fetchChainInfo = async (): Promise&lt;ChainInfo&gt; => {
+export const fetchChainInfo = async (): Promise<ChainInfo> => {
     const response = await fetch(`${API_BASE}/chain/info`);
     return response.json();
 };
 
-export const fetchChainTip = async (): Promise&lt;{ tip: string }&gt; => {
+export const fetchChainTip = async (): Promise<{ tip: string }> => {
     const response = await fetch(`${API_BASE}/chain/tip`);
     return response.json();
 };
 
-export const fetchChainHeight = async (): Promise&lt;{ height: number | null }&gt; => {
+export const fetchChainHeight = async (): Promise<{ height: number | null }> => {
     const response = await fetch(`${API_BASE}/chain/height`);
     return response.json();
 };
 
-export const fetchSharesAtHeight = async (height: number): Promise&lt;SharesAtHeight&gt; => {
+export const fetchSharesAtHeight = async (height: number): Promise<SharesAtHeight> => {
     const response = await fetch(`${API_BASE}/chain/shares/${height}`);
     return response.json();
 };
 
-export const fetchTotalWork = async (): Promise&lt;{ total_work: string }&gt; => {
+export const fetchTotalWork = async (): Promise<{ total_work: string }> => {
     const response = await fetch(`${API_BASE}/chain/total_work`);
     return response.json();
 };
 
-export const fetchChainLocator = async (): Promise&lt;{ locator: string[] }&gt; => {
+export const fetchChainLocator = async (): Promise<{ locator: string[] }> => {
     const response = await fetch(`${API_BASE}/chain/locator`);
     return response.json();
 };
 
-export const fetchChainDag = async (params?: DagQueryParams): Promise&lt;DagResponse&gt; => {
+export const fetchChainDag = async (params?: DagQueryParams): Promise<DagResponse> => {
     const queryParams = new URLSearchParams();
     if (params?.from_height !== undefined) queryParams.set('from_height', params.from_height.toString());
     if (params?.to_height !== undefined) queryParams.set('to_height', params.to_height.toString());
