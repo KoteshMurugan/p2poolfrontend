@@ -1,7 +1,9 @@
+// src/components/Dashboard.tsx
 import { useMetrics } from '../hooks/useMetrics';
-import { formatHashrate, formatDifficulty, formatTimestamp, timeAgo, formatSatoshis } from '../utils/parseMetrics';
+import { formatHashrate, formatDifficulty, formatTimestamp, timeAgo } from '../utils/parseMetrics';
 import { Activity, Zap, TrendingUp, Clock, Users, Award } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
+import ChainStats from './ChainStats';
 
 const COLORS = ['#f97316', '#3b82f6', '#22c55e', '#eab308', '#ec4899', '#8b5cf6'];
 
@@ -52,6 +54,9 @@ export default function Dashboard() {
                 <h2 className="text-2xl font-bold text-white mb-2">Pool Overview</h2>
                 <p className="text-slate-400">Real-time statistics for your P2Pool node</p>
             </div>
+
+            {/* Sharechain Status - NEW SECTION */}
+            <ChainStats />
 
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">

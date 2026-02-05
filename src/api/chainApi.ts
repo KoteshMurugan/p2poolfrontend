@@ -1,5 +1,6 @@
 // src/api/chainApi.ts
-const API_BASE = 'http://127.0.0.1:46884';
+const API_BASE = '/api';
+
 
 export interface ChainInfo {
     tip: string;
